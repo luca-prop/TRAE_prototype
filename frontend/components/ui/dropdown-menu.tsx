@@ -166,4 +166,9 @@ const DropdownMenuSeparator = React.forwardRef<
     {...props}
   />
 ))
-DropdownMenuSeparator.displayName = DropdownMenuPrimitive.SeparatorNormally I can help with things like this, but I don't seem to have access to that content. You can try again or ask me for something else.
+DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
+
+const DropdownMenuShortcut = ({
+  className,
+  ...props
+}: React.HTMLAttributesNormally I can help with things like this, but I don't seem to have access to that content. You can try again or ask me for something else.
