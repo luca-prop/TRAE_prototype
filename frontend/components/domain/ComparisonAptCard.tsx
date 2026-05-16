@@ -60,7 +60,7 @@ export function ComparisonAptCard({ apt }: { apt: AptData }) {
                   </span>
                 )}
               </h3>
-              <p className="text-xs md:text-sm text-gray-500 mt-0.5 truncate">최신 실거래가: {apt.recentPrice}</p>
+              <p className="text-xs md:text-sm text-gray-500 mt-0.5 truncate">최근 시세: {apt.recentPrice}</p>
             </div>
           </div>
           <Dialog>
@@ -77,7 +77,7 @@ export function ComparisonAptCard({ apt }: { apt: AptData }) {
               <div className="space-y-3 pt-2">
                 <Input placeholder="아파트 단지명 검색..." className="h-12" />
                 <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
-                  {["상도 더샵 1차", "본동 래미안", "노량진 우성"].map((name) => (
+                  {["SK북한산시티", "관악드림타운", "래미안크레시티"].map((name) => (
                     <div key={name} className="p-4 hover:bg-gray-50 active:bg-gray-100 cursor-pointer text-sm min-h-[48px] flex items-center">{name}</div>
                   ))}
                 </div>
@@ -95,7 +95,7 @@ export function ComparisonAptCard({ apt }: { apt: AptData }) {
           <MetricCard 
             label="전고점 대비 회복률" 
             value={`${apt.recovery}%`} 
-            highlight={apt.status === "good" ? "green" : apt.status === "warning" ? "yellow" : "red"}
+            highlight="none"
             withBackground={false}
           />
           <MetricCard 

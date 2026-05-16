@@ -9,9 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/", label: "홈", icon: Home },
-  { href: "/b2b", label: "중개사 등록", icon: Building2 },
-  { href: "/admin", label: "관리자", icon: LayoutDashboard, badge: "Admin" },
+  { href: "/app", label: "홈", icon: Home },
+  { href: "/app/b2b", label: "중개사 등록", icon: Building2 },
+  { href: "/app/admin", label: "관리자", icon: LayoutDashboard, badge: "Admin" },
 ];
 
 /**
@@ -33,7 +33,7 @@ export default function GNB() {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 group" onClick={() => setMobileMenuOpen(false)}>
             <Image
-              src="/seedfit-logo.svg"
+              src="/seedfit_logo2_Favicon_navy_backdel.png"
               alt="씨드핏 로고"
               width={36}
               height={36}

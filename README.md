@@ -8,6 +8,34 @@
 
 ---
 
+## 🛬 0. 랜딩페이지 (Landing Page — Customer Hook)
+
+프로젝트는 **2-Tier 진입 구조**로 설계되어 있습니다.
+
+| 계층 | 경로 | 역할 |
+|------|------|------|
+| **랜딩페이지 (V1)** | `/` (루트) | 고객 Hook — 서비스 가치 제안 및 CTA를 통한 전환 유도 (결과 지향형) |
+| **랜딩페이지 (V2)** | `/landing-v2` | 강력한 페르소나 타겟팅 기반 랜딩페이지 — Pain Point 중심 훅 |
+| **서비스 앱** | `/app` | 실제 서비스 — 예산 입력, 역방향 필터, 비교 분석 등 |
+
+### 랜딩페이지 구성 (C 유형 — 결과 지향형 전략)
+
+랜딩페이지는 **복잡한 재개발 정보 탐색을 자동화**하는 씨드핏의 핵심 가치를 효과적으로 전달하기 위해, [랜딩페이지 고도화 전략](./docs/LANDING_STRATEGY.md)의 **C 유형(결과 지향형)** 전략을 채택했습니다.
+
+- **Hero Section**: 3초 안에 핵심 이득을 전달하는 헤드라인 + 그래디언트 글로우 배경
+- **Social Proof**: 애니메이션 카운터를 통한 4개 핵심 수치 증명 (1,247개 구역, 15시간→30초 등)
+- **Input-Output Diagram**: "가용 현금 입력 → 씨드핏 엔진 → 맞춤 결과" 3단계 블랙박스 흐름도
+- **Value Proposition**: 6개 핵심 혜택 카드 (역방향 필터링, 1:1 대조, Verified 등)
+- **Before & After 대비표**: 도입 전후 5개 항목의 시간/비용/신뢰도 비교
+- **Outcome Showcase**: 실제 분석 결과 프리뷰 카드 3건
+- **CTA 반복 배치**: Nav(상단) + Hero + 중단 + 하단 = 4회 반복 노출
+- **Partner Logos**: 데이터 파트너 신뢰 기반
+
+> 상세 체크리스트 평가 리포트는 [docs/LANDING_CHECKLIST.md](./docs/LANDING_CHECKLIST.md)를 참고하세요.
+> V2 페르소나 기반 랜딩페이지 평가 체크리스트는 [docs/LANDING_V2_CHECKLIST.md](./docs/LANDING_V2_CHECKLIST.md)를 참고하세요.
+
+---
+
 ## 🚀 1. 주요 핵심 시나리오 (UX Flow)
 
 씨드핏은 B2C(스마트 비기너)와 B2B(파트너 공인중개사) 사용자를 위한 최적화된 시나리오를 제공합니다.
@@ -27,6 +55,26 @@
 ## 🏗️ 2. 프론트엔드 아키텍처 (Component Architecture)
 
 프론트엔드 프로젝트(`frontend/`)는 **Next.js App Router** 아키텍처를 기반으로 설계되었습니다.
+
+### 라우트 구조
+
+```
+app/
+├── page.tsx              # 랜딩페이지 V1 (Customer Hook)
+├── landing-v2/           # 랜딩페이지 V2 (Persona-Driven Hook)
+│   ├── page.tsx          
+│   └── landing-v2.css    
+├── layout.tsx            # 루트 레이아웃 (최소 — GNB 없음)
+├── globals.css           # 글로벌 스타일
+└── app/                  # 서비스 앱 (GNB + Footer 포함)
+    ├── layout.tsx        # 서비스 앱 전용 레이아웃
+    ├── page.tsx          # 예산 입력 홈
+    ├── results/          # 역산 결과 리스트
+    ├── comparison/[id]/  # 1:1 대조 분석
+    ├── listings/[id]/    # 매물 리스트
+    ├── b2b/              # 중개사 등록
+    └── admin/            # 관리자
+```
 
 - **모바일 퍼스트 및 UI 최적화**: 햄버거 오버레이 메뉴, 터치 타겟(44px+) 규격화, SVG 기반의 고해상도 벡터 로고 등 모바일 친화적인 디자인이 전면 적용되었습니다.
 - **Atomic Design & UI Primitives**: `Shadcn UI` 기반으로 구축되었으며, 범용 컴포넌트(`MetricCard` 등)는 `components/ui/`에 위치합니다.
@@ -63,4 +111,8 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:3000`으로 접속하여 씨드핏의 모바일 반응형 프로토타입을 확인하실 수 있습니다.
+| 경로 | 설명 |
+|------|------|
+| `http://localhost:3000` | 랜딩페이지 V1 (고객 Hook) |
+| `http://localhost:3000/landing-v2` | 랜딩페이지 V2 (페르소나 중심 Hook) |
+| `http://localhost:3000/app` | 서비스 앱 (예산 입력 → 분석) |

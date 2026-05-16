@@ -1,0 +1,8 @@
+# 🔒 SeedFit Core Values & IP Documents
+docs/DATA_CURATION_SPEC*.md
+docs/Phase2_scatter_chart검토.md
+docs/golden_samples*.csv
+docs/*.xlsx
+docs/*.py
+docs/씨드핏핵심가치.md
+docs/excel_out.json
