@@ -47,13 +47,21 @@ const STAGE_LABELS_SHORT: Record<number, string> = {
   9: "기축",
 };
 
-const TIER_COLORS: Record<string, string> = {
-  T1: "#3b82f6",
-  T2: "#10b981",
-  T3: "#f59e0b",
-  T4: "#ef4444",
+const STAGE_COLORS: Record<string, string> = {
+  BLUE: "#3b82f6",   // 준비
+  GREEN: "#10b981",  // 지정, 조합
+  YELLOW: "#f59e0b", // 시공사, 사시
+  RED: "#ef4444",    // 관처, 이주, 착공
   T_REF: "#8b5cf6",
 };
+
+function getStageColor(stage: number) {
+  if (stage < 2) return STAGE_COLORS.BLUE;
+  if (stage < 4) return STAGE_COLORS.GREEN;
+  if (stage < 6) return STAGE_COLORS.YELLOW;
+  if (stage < 9) return STAGE_COLORS.RED;
+  return STAGE_COLORS.T_REF;
+}
 
 /**
  * Position Dodge 로직: 동일 X축(stage) 값을 가진 마커들을 좌우로 미세하게 분산
@@ -126,7 +134,7 @@ function DumbbellShape(props: any) {
       <g opacity={payload.isPinned ? 1 : 0.9} onClick={handleClick} style={{ cursor: "pointer" }}>
         <polygon
           points={`${cx},${cy - 9} ${cx + 7},${cy + 5} ${cx - 7},${cy + 5}`}
-          fill={payload.isPinned ? "#8b5cf6" : TIER_COLORS.T_REF}
+          fill={payload.isPinned ? "#8b5cf6" : STAGE_COLORS.T_REF}
           stroke="#fff"
           strokeWidth={payload.isPinned ? 2 : 1}
         />
@@ -137,7 +145,7 @@ function DumbbellShape(props: any) {
   // 선택된 구역이 있을 때 isOut 구역은 완전히 숨김 (회색 테두리 방지)
   if (payload.isOut && payload.hasPinned) return null;
 
-  const fill = payload.isPinned ? "#8b5cf6" : (TIER_COLORS[payload.tier as keyof typeof TIER_COLORS] || "#888");
+  const fill = payload.isPinned ? "#8b5cf6" : getStageColor(payload.stage);
   const opacity = payload.isOut ? 0.08 : (payload.isPinned ? 1 : 0.55);
 
   // Calculate Y positions from yAxis scale
@@ -825,24 +833,25 @@ function ScatterChartContent() {
 
       {/* Legend */}
       <div className="mt-4 md:mt-8 flex flex-wrap gap-4 md:gap-8 justify-center text-sm font-bold text-gray-500 bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-gray-100">
-        {Object.entries(TIER_COLORS)
-          .filter(([k]) => k !== "T_REF")
-          .map(([tier, color]) => (
-            <div key={tier} className="flex items-center gap-2">
-              <svg width="14" height="18" viewBox="0 0 14 18">
-                <circle cx="7" cy="3" r="2.5" fill={color} />
-                <line x1="7" y1="3" x2="7" y2="15" stroke={color} strokeWidth="1.5" />
-                <circle cx="7" cy="15" r="2.5" fill={color} />
-              </svg>
-              <span className="text-xs md:text-sm">
-                {tier === "T1" ? "1~3억" : tier === "T2" ? "3~5억" : tier === "T3" ? "5~10억" : "10억+"}
-              </span>
-            </div>
-          ))}
+        {[
+          { label: "준비", color: STAGE_COLORS.BLUE },
+          { label: "지정·조합", color: STAGE_COLORS.GREEN },
+          { label: "시공사·사시", color: STAGE_COLORS.YELLOW },
+          { label: "관처·이주·착공", color: STAGE_COLORS.RED },
+        ].map(({ label, color }) => (
+          <div key={label} className="flex items-center gap-2">
+            <svg width="14" height="18" viewBox="0 0 14 18">
+              <circle cx="7" cy="3" r="2.5" fill={color} />
+              <line x1="7" y1="3" x2="7" y2="15" stroke={color} strokeWidth="1.5" />
+              <circle cx="7" cy="15" r="2.5" fill={color} />
+            </svg>
+            <span className="text-xs md:text-sm">{label}</span>
+          </div>
+        ))}
         <div className="flex items-center gap-2">
           <div
             className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-b-[9px] shadow-sm"
-            style={{ borderBottomColor: TIER_COLORS.T_REF }}
+            style={{ borderBottomColor: STAGE_COLORS.T_REF }}
           />
           <span className="text-xs md:text-sm">레퍼런스 기축 단지</span>
         </div>
