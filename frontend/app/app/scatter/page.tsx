@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, MapPin, X, SlidersHorizontal, ExternalLink } from "lucide-react";
+import { ArrowLeft, MapPin, X, SlidersHorizontal, ExternalLink, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { scatterData } from "../../lib/scatterData";
@@ -202,6 +202,12 @@ function ScatterChartContent() {
   const [showAllZones, setShowAllZones] = useState(!(budgetMinParam || legacyBudget));
   const [pinnedData, setPinnedData] = useState<any>(null);
 
+  // 모바일 줌 레벨 (item 3: 핀치 줌 대체)
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const handleZoomIn = useCallback(() => setZoomLevel((z) => Math.min(z + 0.5, 3)), []);
+  const handleZoomOut = useCallback(() => setZoomLevel((z) => Math.max(z - 0.5, 1)), []);
+  const handleZoomReset = useCallback(() => setZoomLevel(1), []);
+
   // 모바일 감지: X축 라벨 축약용 (item 2-B)
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -278,54 +284,8 @@ function ScatterChartContent() {
     setPinnedData(payload);
   }, []);
 
-  const renderTooltip = useCallback(
-    ({ active, payload }: any) => {
-      if (pinnedData) return null;
-      if (!active || !payload || !payload.length) return null;
-
-      const data = payload[0].payload;
-      if (data.isRef) {
-        return (
-          <div className="bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-xl border border-gray-100 min-w-[200px]">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold text-gray-900 text-lg">{data.name}</h3>
-              <span className="text-xs font-semibold px-2 py-1 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
-                레퍼런스 단지
-              </span>
-            </div>
-            <div className="space-y-1.5 border-t border-gray-100 pt-2 mt-2">
-              <p className="text-sm text-gray-900 font-bold">
-                <span className="text-gray-400 font-normal mr-2">시세 (84타입)</span> {data.investmentMin}억
-              </p>
-            </div>
-          </div>
-        );
-      }
-      return (
-        <div className="bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-xl border border-gray-100 min-w-[220px]">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-bold text-gray-900 text-lg">{data.name}</h3>
-            <span className="text-xs font-semibold px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-              {data.district}
-            </span>
-          </div>
-          <div className="space-y-1.5 border-t border-gray-100 pt-2 mt-2">
-            <p className="text-sm text-gray-600">
-              <span className="text-gray-400 mr-2">단계</span> {data.stageStr}
-            </p>
-            <p className="text-sm text-gray-900 font-bold">
-              <span className="text-gray-400 font-normal mr-2">투자금</span> {data.investmentMin}억 ~{" "}
-              {data.investmentMax}억
-            </p>
-          </div>
-          <div className="mt-3 text-[11px] text-gray-500 bg-gray-50 py-2 rounded-lg text-center font-medium">
-            &apos;{data.district}&apos; 모아보기
-          </div>
-        </div>
-      );
-    },
-    [pinnedData]
-  );
+  // 호버 툴팁 완전 비활성화 — 클릭(핀) 방식만 사용 (item 2 피드백)
+  const renderTooltip = useCallback(() => null, []);
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-8 max-w-6xl min-h-screen flex flex-col bg-gray-50/30">
@@ -424,14 +384,15 @@ function ScatterChartContent() {
         </button>
         {ALL_DISTRICTS.map((district) => {
           const isActive = activeDistricts.has(district) || selectedDistrict === district;
-          // 예산 범위 내 구역 수로 카운트 (item 1: 예산 연동)
+          // 예산 범위 내 구역 수만 카운트 (피드백: 0개 구는 숨김)
           const budgetCount = hasBudget
             ? scatterData.filter((d) =>
                 d.district === district &&
                 !(d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)
               ).length
             : scatterData.filter((d) => d.district === district).length;
-          const totalCount = scatterData.filter((d) => d.district === district).length;
+          // 예산 필터 활성화 시 0개 구역인 구는 숨김 (전체 보기 모드 제외)
+          if (hasBudget && !showAllZones && budgetCount === 0 && !isActive) return null;
           return (
             <button
               key={district}
@@ -442,7 +403,7 @@ function ScatterChartContent() {
                   : 'bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'
               }`}
             >
-              {district} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{hasBudget ? `${budgetCount}/${totalCount}` : totalCount}</span>
+              {district} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{budgetCount}</span>
             </button>
           );
         })}
@@ -466,9 +427,41 @@ function ScatterChartContent() {
         </div>
       )}
 
-      {/* Chart (item 2-C: 모바일 높이 최적화) */}
+      {/* 줌 컨트롤 (모바일 전용) */}
+      {isMobile && (
+        <div className="mb-3 flex items-center justify-end gap-2">
+          <span className="text-xs text-gray-400 mr-1">{zoomLevel > 1 ? `${zoomLevel.toFixed(1)}x` : '확대/축소'}</span>
+          <button
+            onClick={handleZoomOut}
+            disabled={zoomLevel <= 1}
+            className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            <ZoomOut className="h-4 w-4 text-gray-600" />
+          </button>
+          <button
+            onClick={handleZoomIn}
+            disabled={zoomLevel >= 3}
+            className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            <ZoomIn className="h-4 w-4 text-gray-600" />
+          </button>
+          {zoomLevel > 1 && (
+            <button
+              onClick={handleZoomReset}
+              className="p-2 rounded-xl bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-all"
+            >
+              <RotateCcw className="h-4 w-4 text-gray-600" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Chart — 줌 적용 시 overflow-auto로 스크롤 가능 */}
       <div
-        className="w-full h-[450px] md:h-[600px] p-2 md:p-8 shadow-2xl border border-gray-100 bg-white rounded-[2rem] overflow-visible relative"
+        className={`w-full shadow-2xl border border-gray-100 bg-white rounded-[2rem] relative ${
+          zoomLevel > 1 ? 'overflow-auto' : 'overflow-visible'
+        }`}
+        style={{ height: isMobile ? '450px' : '600px' }}
         onClick={() => setPinnedData(null)}
       >
         {/* Budget range highlight band */}
@@ -476,6 +469,7 @@ function ScatterChartContent() {
           <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-0 overflow-hidden rounded-[2rem]" />
         )}
         
+        <div style={{ width: `${100 * zoomLevel}%`, height: `${100 * zoomLevel}%`, minWidth: '100%', minHeight: '100%', padding: isMobile ? '8px' : '32px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -538,6 +532,7 @@ function ScatterChartContent() {
             />
           </ScatterChart>
         </ResponsiveContainer>
+        </div>
 
         {pinnedData && pinnedData.cx && (
           <div
