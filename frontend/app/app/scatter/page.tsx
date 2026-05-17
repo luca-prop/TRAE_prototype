@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, Suspense } from "react";
+import React, { useState, useMemo, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, MapPin, X, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, MapPin, X, SlidersHorizontal, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { scatterData } from "../../lib/scatterData";
 import { REFERENCE_COMPLEXES } from "../../lib/referenceComplexes";
+import { PROGRESS_DATES } from "../../lib/scatterDates";
 
 // 데이터에서 고유 구 목록 자동 추출
 const ALL_DISTRICTS = Array.from(new Set(scatterData.map((d) => d.district)));
@@ -33,6 +34,19 @@ const STAGE_LABELS: Record<number, string> = {
   9: "기축(비교군)",
 };
 
+// 모바일 축약 라벨 (item 2-B)
+const STAGE_LABELS_SHORT: Record<number, string> = {
+  1: "준비",
+  2: "지정",
+  3: "조합",
+  4: "시공",
+  5: "시행",
+  6: "처분",
+  7: "이주",
+  8: "착공",
+  9: "기축",
+};
+
 const TIER_COLORS: Record<string, string> = {
   T1: "#3b82f6",
   T2: "#10b981",
@@ -44,11 +58,17 @@ const TIER_COLORS: Record<string, string> = {
 /**
  * Position Dodge 로직: 동일 X축(stage) 값을 가진 마커들을 좌우로 미세하게 분산
  */
+/**
+ * Position Dodge 로직 (개선): 동일 stageStr 그룹 내에서 날짜순으로 X축 분산
+ * - 선정일이 빠를수록 X축 오른쪽 배치 (더 진행된 것으로 간주)
+ * - 동일 날짜인 경우 구역명 알파벳순 타이브레이커로 고유 순서 보장
+ * - 모든 구역이 고유한 X 좌표를 가짐 (겹침 제로)
+ */
 function applyPositionDodge(data: any[]) {
-  // Group by stage value
+  // stageStr 기준으로 그룹핑 (같은 단계명끼리 묶음)
   const stageGroups: Record<string, any[]> = {};
   data.forEach((d) => {
-    const key = String(d.stage);
+    const key = d.stageStr || String(d.stage);
     if (!stageGroups[key]) stageGroups[key] = [];
     stageGroups[key].push(d);
   });
@@ -57,12 +77,18 @@ function applyPositionDodge(data: any[]) {
   const DODGE_WIDTH = 0.06; // 각 마커 간 X축 오프셋
 
   for (const [, group] of Object.entries(stageGroups)) {
-    // 그룹 내에서 투자금 순으로 정렬 (Y축 시각적 순서 일관성)
-    group.sort((a: any, b: any) => a.investmentMin - b.investmentMin);
+    // 날짜순 정렬: 빠른 날짜(작은 숫자) → 더 진행 → 오른쪽(큰 offset)
+    // 동일 날짜 시 구역명 알파벳순 타이브레이커
+    group.sort((a: any, b: any) => {
+      const dateA = PROGRESS_DATES[a.name] ?? 99999999;
+      const dateB = PROGRESS_DATES[b.name] ?? 99999999;
+      if (dateA !== dateB) return dateA - dateB; // 빠른 날짜가 앞 (idx 작음 → 오른쪽)
+      return (a.name || "").localeCompare(b.name || ""); // 타이브레이커
+    });
     const count = group.length;
     group.forEach((item: any, idx: number) => {
-      // 중심 기준으로 좌우 분산: offset = (idx - center) * DODGE_WIDTH
-      const offset = (idx - (count - 1) / 2) * DODGE_WIDTH;
+      // 가장 빠른 날짜(idx=0)가 오른쪽(+), 가장 늦은(idx=count-1)이 왼쪽(-)
+      const offset = ((count - 1) / 2 - idx) * DODGE_WIDTH * -1;
       dodged.push({
         ...item,
         stageDodged: item.stage + offset,
@@ -175,6 +201,15 @@ function ScatterChartContent() {
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
   const [showAllZones, setShowAllZones] = useState(!(budgetMinParam || legacyBudget));
   const [pinnedData, setPinnedData] = useState<any>(null);
+
+  // 모바일 감지: X축 라벨 축약용 (item 2-B)
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // 구별 필터: 선택된 구 목록 (비어있으면 전체 표시)
   const [activeDistricts, setActiveDistricts] = useState<Set<string>>(new Set());
@@ -389,7 +424,14 @@ function ScatterChartContent() {
         </button>
         {ALL_DISTRICTS.map((district) => {
           const isActive = activeDistricts.has(district) || selectedDistrict === district;
-          const count = scatterData.filter((d) => d.district === district).length;
+          // 예산 범위 내 구역 수로 카운트 (item 1: 예산 연동)
+          const budgetCount = hasBudget
+            ? scatterData.filter((d) =>
+                d.district === district &&
+                !(d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)
+              ).length
+            : scatterData.filter((d) => d.district === district).length;
+          const totalCount = scatterData.filter((d) => d.district === district).length;
           return (
             <button
               key={district}
@@ -400,7 +442,7 @@ function ScatterChartContent() {
                   : 'bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'
               }`}
             >
-              {district} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{count}</span>
+              {district} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{hasBudget ? `${budgetCount}/${totalCount}` : totalCount}</span>
             </button>
           );
         })}
@@ -424,9 +466,9 @@ function ScatterChartContent() {
         </div>
       )}
 
-      {/* Chart */}
+      {/* Chart (item 2-C: 모바일 높이 최적화) */}
       <div
-        className="w-full h-[600px] p-2 md:p-8 shadow-2xl border border-gray-100 bg-white rounded-[2rem] overflow-visible relative"
+        className="w-full h-[450px] md:h-[600px] p-2 md:p-8 shadow-2xl border border-gray-100 bg-white rounded-[2rem] overflow-visible relative"
         onClick={() => setPinnedData(null)}
       >
         {/* Budget range highlight band */}
@@ -443,18 +485,26 @@ function ScatterChartContent() {
               dataKey="stageDodged"
               domain={[0.5, 9.5]}
               ticks={[1, 2, 3, 4, 5, 6, 7, 8, 9]}
-              tickFormatter={(val) => STAGE_LABELS[val] || ""}
-              tick={{ fontSize: 13, fill: "#64748b", fontWeight: 600 }}
+              tickFormatter={(val) => (isMobile ? STAGE_LABELS_SHORT : STAGE_LABELS)[val] || ""}
+              tick={{ fontSize: isMobile ? 11 : 13, fill: "#64748b", fontWeight: 600 }}
               axisLine={{ stroke: "#f1f5f9" }}
               tickLine={false}
               dy={15}
             />
 
+            {/* Y축 자동 줌: 예산 범위 ±50% 포커싱 (item 2-A) */}
             <YAxis
               type="number"
               dataKey="avg"
               unit="억"
-              domain={[0, 32]}
+              domain={[
+                hasBudget && !showAllZones
+                  ? Math.max(0, Math.floor(budgetMinEok * 0.5))
+                  : 0,
+                hasBudget && !showAllZones
+                  ? Math.ceil(budgetMaxEok * 1.8)
+                  : 32
+              ]}
               tick={{ fontSize: 12, fill: "#94a3b8", fontWeight: 500 }}
               axisLine={false}
               tickLine={false}
@@ -539,7 +589,17 @@ function ScatterChartContent() {
                     : ""}
                 </p>
 
-                <div className="pt-2 mt-1 border-t border-gray-100">
+                {/* item 3: 구역 자세히 보기 → 비교분석 페이지 연결 */}
+                <div className="pt-2 mt-1 border-t border-gray-100 space-y-2">
+                  <button
+                    onClick={() => {
+                      router.push(`/app/comparison/${encodeURIComponent(pinnedData.id)}?budget=${Math.round(budgetMinEok * 100000000)}`);
+                    }}
+                    className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    &apos;{pinnedData.name}&apos; 자세히 보기
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </button>
                   <button
                     onClick={() => {
                       setSelectedDistrict(pinnedData.district);
