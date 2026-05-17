@@ -134,6 +134,9 @@ function DumbbellShape(props: any) {
     );
   }
 
+  // 선택된 구역이 있을 때 isOut 구역은 완전히 숨김 (회색 테두리 방지)
+  if (payload.isOut && payload.hasPinned) return null;
+
   const fill = payload.isPinned ? "#8b5cf6" : (TIER_COLORS[payload.tier as keyof typeof TIER_COLORS] || "#888");
   const opacity = payload.isOut ? 0.08 : (payload.isPinned ? 1 : 0.55);
 
@@ -179,6 +182,134 @@ function DumbbellShape(props: any) {
         <circle cx={cx} cy={yMin} r={payload.isPinned ? 4.5 : 3.5} fill={fill} stroke="#fff" strokeWidth={1} />
       )}
     </g>
+  );
+}
+
+/**
+ * PinnedTooltip: 컨테이너 경계를 감지하여 짤리지 않게 위치 조정하는 툴팁
+ */
+function PinnedTooltip({ pinnedData, containerRef, onClose, onViewDetail, onViewDistrict }: {
+  pinnedData: any;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  onViewDetail: () => void;
+  onViewDistrict: () => void;
+}) {
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState<{ left: number; top: number; showBelow: boolean }>({
+    left: pinnedData.cx,
+    top: pinnedData.cy,
+    showBelow: false,
+  });
+
+  useEffect(() => {
+    const tooltip = tooltipRef.current;
+    const container = containerRef.current;
+    if (!tooltip || !container) return;
+
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const tooltipH = tooltipRect.height;
+    const tooltipW = tooltipRect.width;
+
+    let left = pinnedData.cx;
+    let top = pinnedData.cy;
+    let showBelow = false;
+
+    // 툴팁이 위로 짤리면 아래로 표시
+    const pointAbsTop = top - container.scrollTop;
+    if (pointAbsTop - tooltipH - 20 < 0) {
+      showBelow = true;
+    }
+
+    // 좌우 경계 체크: 컨테이너 영역 안에 맞춤
+    const halfW = tooltipW / 2;
+    const containerInnerW = container.scrollWidth;
+    if (left - halfW < 8) left = halfW + 8;
+    if (left + halfW > containerInnerW - 8) left = containerInnerW - halfW - 8;
+
+    setAdjustedPos({ left, top, showBelow });
+  }, [pinnedData.cx, pinnedData.cy, containerRef]);
+
+  return (
+    <div
+      ref={tooltipRef}
+      className="absolute z-50 bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-2xl border border-indigo-200 min-w-[240px] max-w-[300px] animate-in zoom-in-95 pointer-events-auto"
+      style={{
+        left: adjustedPos.left,
+        top: adjustedPos.top,
+        transform: adjustedPos.showBelow
+          ? 'translate(-50%, 16px)'
+          : 'translate(-50%, -100%)',
+        marginTop: adjustedPos.showBelow ? '0' : '-16px',
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <h3 className="font-bold text-gray-900 text-base leading-tight">{pinnedData.name}</h3>
+        <button
+          className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4 text-gray-400" />
+        </button>
+      </div>
+
+      {pinnedData.isRef ? (
+        <div className="space-y-1.5 border-t border-gray-100 pt-2">
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
+            레퍼런스 기축 단지
+          </span>
+          <p className="text-sm text-gray-900 font-bold mt-1.5">
+            <span className="text-gray-400 font-normal mr-2">시세 (84타입)</span>{" "}
+            {pinnedData.investmentMin}억
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5 border-t border-gray-100 pt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+              {pinnedData.district}
+            </span>
+          </div>
+          <p className="text-sm text-gray-600">
+            <span className="text-gray-400 mr-2">단계</span>
+            <span className="font-semibold text-gray-800">{pinnedData.stageStr}</span>
+          </p>
+          <p className="text-sm text-gray-900 font-bold">
+            <span className="text-gray-400 font-normal mr-2">투자금</span>
+            {pinnedData.investmentMin}억
+            {pinnedData.investmentMax !== pinnedData.investmentMin
+              ? ` ~ ${pinnedData.investmentMax}억`
+              : ""}
+          </p>
+
+          {/* 구역 자세히 보기 → 비교분석 페이지 연결 */}
+          <div className="pt-2 mt-1 border-t border-gray-100 space-y-2">
+            <button
+              onClick={onViewDetail}
+              className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors flex items-center justify-center gap-1.5"
+            >
+              &apos;{pinnedData.name}&apos; 자세히 보기
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={onViewDistrict}
+              className="w-full py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-bold transition-colors"
+            >
+              &apos;{pinnedData.district}&apos; 모아보기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tooltip arrow */}
+      <div className={`absolute left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-indigo-200 transform rotate-45 ${
+        adjustedPos.showBelow
+          ? '-top-2 border-t border-l'
+          : '-bottom-2 border-b border-r'
+      }`}></div>
+    </div>
   );
 }
 
@@ -249,14 +380,14 @@ function ScatterChartContent() {
           e.touches[0].clientY - e.touches[1].clientY
         );
         const ratio = currentDist / initialDist;
-        setZoomLevel(Math.max(1, Math.min(initialZoom * ratio, 5)));
+        setZoomLevel(Math.max(0.5, Math.min(initialZoom * ratio, 5)));
       }
     };
 
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
-        setZoomLevel(prev => Math.max(1, Math.min(prev * (e.deltaY > 0 ? 0.9 : 1.1), 5)));
+        setZoomLevel(prev => Math.max(0.5, Math.min(prev * (e.deltaY > 0 ? 0.9 : 1.1), 5)));
       }
     };
 
@@ -303,7 +434,8 @@ function ScatterChartContent() {
       const avg = (d.investmentMin + d.investmentMax) / 2;
       const isOut = hasBudget && (d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9);
       const isPinned = pinnedData && pinnedData.name === d.name;
-      return { ...d, avg, isOut, isPinned };
+      // hasPinned 플래그: 선택된 구역이 있으면 isOut 구역 렌더링 숨김용
+      return { ...d, avg, isOut, isPinned, hasPinned: !!pinnedData };
     });
 
     // 구별 필터 적용: 선택된 구가 없으면 아무것도 안 표시됨 (전체 선택 해제 시)
@@ -375,6 +507,17 @@ function ScatterChartContent() {
 
   const handlePointClick = useCallback((payload: any) => {
     setPinnedData(payload);
+
+    // 선택된 구역을 화면 중앙 아래로 스크롤하여 툴팁이 짤리지 않도록 조정
+    requestAnimationFrame(() => {
+      const container = containerRef.current;
+      if (!container || !payload?.cy) return;
+      const containerRect = container.getBoundingClientRect();
+      const containerHeight = containerRect.height;
+      // 핀된 포인트의 cy를 컨테이너 하단 60% 지점에 배치 (위에 40% 공간 확보)
+      const targetScrollTop = payload.cy - containerHeight * 0.6 + container.scrollTop;
+      container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+    });
   }, []);
 
   // 웹: 호버 툴팁 표시 / 모바일: 비활성화 (클릭 핀 방식만)
@@ -654,6 +797,7 @@ function ScatterChartContent() {
                 name="재개발 구역"
                 data={displayData}
                 shape={<DumbbellShape onPointClick={handlePointClick} />}
+                activeShape={false}
                 isAnimationActive={false}
               />
             </ScatterChart>
@@ -661,95 +805,22 @@ function ScatterChartContent() {
         </div>
 
         {pinnedData && pinnedData.cx && (
-          <div
-            className="absolute z-50 bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-2xl border border-indigo-200 min-w-[240px] max-w-[300px] animate-in zoom-in-95 pointer-events-auto"
-            style={{
-              left: pinnedData.cx,
-              top: pinnedData.cy,
-              transform: 'translate(-50%, -100%)',
-              marginTop: '-16px'
+          <PinnedTooltip
+            pinnedData={pinnedData}
+            containerRef={containerRef}
+            onClose={() => setPinnedData(null)}
+            onViewDetail={() => {
+              router.push(`/app/comparison/${encodeURIComponent(pinnedData.id)}?budget=${Math.round(budgetMinEok * 100000000)}`);
             }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-2 gap-2">
-              <h3 className="font-bold text-gray-900 text-base leading-tight">{pinnedData.name}</h3>
-              <button
-                className="flex-shrink-0 h-6 w-6 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
-                onClick={() => setPinnedData(null)}
-              >
-                <X className="h-4 w-4 text-gray-400" />
-              </button>
-            </div>
-
-            {pinnedData.isRef ? (
-              <div className="space-y-1.5 border-t border-gray-100 pt-2">
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
-                  레퍼런스 기축 단지
-                </span>
-                <p className="text-sm text-gray-900 font-bold mt-1.5">
-                  <span className="text-gray-400 font-normal mr-2">시세 (84타입)</span>{" "}
-                  {pinnedData.investmentMin}억
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1.5 border-t border-gray-100 pt-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-                    {pinnedData.district}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600">
-                  <span className="text-gray-400 mr-2">단계</span>
-                  <span className="font-semibold text-gray-800">{pinnedData.stageStr}</span>
-                </p>
-                <p className="text-sm text-gray-900 font-bold">
-                  <span className="text-gray-400 font-normal mr-2">투자금</span>
-                  {pinnedData.investmentMin}억
-                  {pinnedData.investmentMax !== pinnedData.investmentMin
-                    ? ` ~ ${pinnedData.investmentMax}억`
-                    : ""}
-                </p>
-
-                {/* item 3: 구역 자세히 보기 → 비교분석 페이지 연결 */}
-                <div className="pt-2 mt-1 border-t border-gray-100 space-y-2">
-                  <button
-                    onClick={() => {
-                      router.push(`/app/comparison/${encodeURIComponent(pinnedData.id)}?budget=${Math.round(budgetMinEok * 100000000)}`);
-                    }}
-                    className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    &apos;{pinnedData.name}&apos; 자세히 보기
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedDistrict(pinnedData.district);
-                      setPinnedData(null);
-                    }}
-                    className="w-full py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-bold transition-colors"
-                  >
-                    &apos;{pinnedData.district}&apos; 모아보기
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Tooltip arrow */}
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b border-r border-indigo-200 transform rotate-45"></div>
-          </div>
+            onViewDistrict={() => {
+              setSelectedDistrict(pinnedData.district);
+              setPinnedData(null);
+            }}
+          />
         )}
       </div>
 
-      {/* 모바일 자동 줌 시 하단 단계 바 (반투명 오버레이) */}
-      {isMobile && autoZoomDomains && (
-        <div className="mt-2 flex justify-between items-center bg-white/80 backdrop-blur-sm px-4 py-2.5 rounded-2xl border border-gray-100 shadow-sm">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => (
-            <span key={s} className="text-[10px] font-bold text-gray-400/70 text-center leading-tight">
-              {STAGE_LABELS_SHORT[s]}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* 예산맞춤줌 시 하단 단계 바 제거됨 - X축 라벨로 충분 */}
 
       {/* Legend */}
       <div className="mt-4 md:mt-8 flex flex-wrap gap-4 md:gap-8 justify-center text-sm font-bold text-gray-500 bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-gray-100">
