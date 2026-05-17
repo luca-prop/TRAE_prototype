@@ -205,14 +205,18 @@ function DumbbellShape(props: any) {
       {showLabels && !payload.isPinned && !payload.isOut && !payload.isRef && (
         <text
           x={cx + 5}
-          y={yMax - 5}
+          y={yMax - 5 - (payload.labelOffset || 0)}
           fill="#64748b"
           fontSize={11}
           fontWeight={600}
           textAnchor="start"
           alignmentBaseline="baseline"
-          transform={`rotate(-45, ${cx + 5}, ${yMax - 5})`}
-          style={{ pointerEvents: "none" }}
+          transform={`rotate(-45, ${cx + 5}, ${yMax - 5 - (payload.labelOffset || 0)})`}
+          style={{ cursor: "pointer", pointerEvents: "auto" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onPointClick) onPointClick({ ...payload, cx, cy: midY });
+          }}
         >
           {getShortZoneName(payload.name)}
         </text>
@@ -514,7 +518,24 @@ function ScatterChartContent() {
       data = [...data, ...refPoints];
     }
 
-    return applyPositionDodge(data);
+    const dodgedData = applyPositionDodge(data);
+
+    // 겹침 방지(라벨 오프셋 계산): investmentMax 오름차순(화면상 아래에서 위로) 정렬하여 겹치면 위로 밀어올림
+    const sorted = [...dodgedData].sort((a, b) => a.investmentMax - b.investmentMax);
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = 0; j < i; j++) {
+        if (sorted[i].isOut || sorted[j].isOut || sorted[i].isRef || sorted[j].isRef) continue;
+        const xDist = Math.abs(sorted[i].stageDodged - sorted[j].stageDodged);
+        if (xDist < 1.5) { // X축이 가까울 때 (1.5단계 이내)
+          const yDist = Math.abs(sorted[i].investmentMax - sorted[j].investmentMax);
+          if (yDist < 1.5) { // Y축도 가까울 때 (1.5억 이내)
+            // 나중에 그려지는(더 위에 있는) 항목의 라벨을 이전 항목보다 위로 올림 (12px 단위)
+            sorted[i].labelOffset = Math.max(sorted[i].labelOffset || 0, (sorted[j].labelOffset || 0) + 12);
+          }
+        }
+      }
+    }
+    return dodgedData;
   }, [hasBudget, budgetMinEok, budgetMaxEok, showAllZones, selectedDistrict, activeDistricts, pinnedData]);
 
   // 자동 줌 도메인: 예산 범위 구역이 화면의 85%를 차지하도록
