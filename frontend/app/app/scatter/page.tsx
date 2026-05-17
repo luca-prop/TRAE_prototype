@@ -23,13 +23,13 @@ import {
 } from "recharts";
 
 const STAGE_LABELS: Record<number, string> = {
-  1: "추진준비",
-  2: "구역지정",
-  3: "조합설립",
-  4: "시공사선정",
-  5: "사업시행",
-  6: "관리처분",
-  7: "이주철거",
+  1: "준비",
+  2: "지정",
+  3: "조합",
+  4: "시공사",
+  5: "사시",
+  6: "관처",
+  7: "이주",
   8: "착공",
   9: "기축(비교군)",
 };
@@ -39,9 +39,9 @@ const STAGE_LABELS_SHORT: Record<number, string> = {
   1: "준비",
   2: "지정",
   3: "조합",
-  4: "시공",
-  5: "시행",
-  6: "처분",
+  4: "시공사",
+  5: "사시",
+  6: "관처",
   7: "이주",
   8: "착공",
   9: "기축",
@@ -74,7 +74,6 @@ function applyPositionDodge(data: any[]) {
   });
 
   const dodged: any[] = [];
-  const DODGE_WIDTH = 0.06; // 각 마커 간 X축 오프셋
 
   for (const [, group] of Object.entries(stageGroups)) {
     // 날짜순 정렬: 빠른 날짜(작은 숫자) → 더 진행 → 오른쪽(큰 offset)
@@ -86,6 +85,10 @@ function applyPositionDodge(data: any[]) {
       return (a.name || "").localeCompare(b.name || ""); // 타이브레이커
     });
     const count = group.length;
+
+    // 마커 간 간격(0.2)을 유지하되, 전체 분포가 ±0.4를 넘지 않도록 제한
+    const DODGE_WIDTH = Math.min(0.2, 0.8 / count);
+
     group.forEach((item: any, idx: number) => {
       // 가장 빠른 날짜(idx=0)가 오른쪽(+), 가장 늦은(idx=count-1)이 왼쪽(-)
       const offset = ((count - 1) / 2 - idx) * DODGE_WIDTH * -1;
@@ -120,19 +123,19 @@ function DumbbellShape(props: any) {
       cy = yAxis.scale(payload.investmentMin);
     }
     return (
-      <g opacity={0.9} onClick={handleClick} style={{ cursor: "pointer" }}>
+      <g opacity={payload.isPinned ? 1 : 0.9} onClick={handleClick} style={{ cursor: "pointer" }}>
         <polygon
           points={`${cx},${cy - 9} ${cx + 7},${cy + 5} ${cx - 7},${cy + 5}`}
-          fill={TIER_COLORS.T_REF}
+          fill={payload.isPinned ? "#8b5cf6" : TIER_COLORS.T_REF}
           stroke="#fff"
-          strokeWidth={1}
+          strokeWidth={payload.isPinned ? 2 : 1}
         />
       </g>
     );
   }
 
-  const fill = TIER_COLORS[payload.tier as keyof typeof TIER_COLORS] || "#888";
-  const opacity = payload.isOut ? 0.08 : 0.55;
+  const fill = payload.isPinned ? "#8b5cf6" : (TIER_COLORS[payload.tier as keyof typeof TIER_COLORS] || "#888");
+  const opacity = payload.isOut ? 0.08 : (payload.isPinned ? 1 : 0.55);
 
   // Calculate Y positions from yAxis scale
   let yMin = 0, yMax = 0;
@@ -166,14 +169,14 @@ function DumbbellShape(props: any) {
         x2={cx}
         y2={yMin}
         stroke={fill}
-        strokeWidth={samePrice ? 0 : 2}
+        strokeWidth={payload.isPinned ? (samePrice ? 0 : 3.5) : (samePrice ? 0 : 2)}
         strokeLinecap="round"
       />
       {/* Top dot (Max) */}
-      <circle cx={cx} cy={yMax} r={samePrice ? 4 : 3.5} fill={fill} stroke="#fff" strokeWidth={1} />
+      <circle cx={cx} cy={yMax} r={samePrice ? (payload.isPinned ? 5 : 4) : (payload.isPinned ? 4.5 : 3.5)} fill={fill} stroke="#fff" strokeWidth={1} />
       {/* Bottom dot (Min) */}
       {!samePrice && (
-        <circle cx={cx} cy={yMin} r={3.5} fill={fill} stroke="#fff" strokeWidth={1} />
+        <circle cx={cx} cy={yMin} r={payload.isPinned ? 4.5 : 3.5} fill={fill} stroke="#fff" strokeWidth={1} />
       )}
     </g>
   );
@@ -182,12 +185,12 @@ function DumbbellShape(props: any) {
 function ScatterChartContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+
   // Support both range and legacy single budget
   const budgetMinParam = searchParams.get("budgetMin");
   const budgetMaxParam = searchParams.get("budgetMax");
   const legacyBudget = searchParams.get("budget");
-  
+
   const initMin = budgetMinParam ? Number(budgetMinParam) / 100000000 : (legacyBudget ? Number(legacyBudget) * 0.85 / 100000000 : 1);
   const initMax = budgetMaxParam ? Number(budgetMaxParam) / 100000000 : (legacyBudget ? Number(legacyBudget) * 1.05 / 100000000 : 15);
 
@@ -214,8 +217,62 @@ function ScatterChartContent() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // 구별 필터: 선택된 구 목록 (비어있으면 전체 표시)
-  const [activeDistricts, setActiveDistricts] = useState<Set<string>>(new Set());
+  // 줌 및 패닝을 위한 상태
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const zoomLevelRef = useRef(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let initialDist = 0;
+    let initialZoom = 1;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        initialDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        initialZoom = zoomLevelRef.current;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const currentDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const ratio = currentDist / initialDist;
+        setZoomLevel(Math.max(1, Math.min(initialZoom * ratio, 5)));
+      }
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        setZoomLevel(prev => Math.max(1, Math.min(prev * (e.deltaY > 0 ? 0.9 : 1.1), 5)));
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+    };
+  }, []);
+
+  // 구별 필터: 기본으로 모든 구 선택 상태
+  const [activeDistricts, setActiveDistricts] = useState<Set<string>>(new Set(ALL_DISTRICTS));
   const handleToggleDistrict = useCallback((district: string) => {
     setActiveDistricts((prev) => {
       const next = new Set(prev);
@@ -231,15 +288,26 @@ function ScatterChartContent() {
     setPinnedData(null);
   }, []);
 
+  const handleToggleAll = useCallback(() => {
+    if (activeDistricts.size === ALL_DISTRICTS.length) {
+      setActiveDistricts(new Set()); // 모두 해제
+    } else {
+      setActiveDistricts(new Set(ALL_DISTRICTS)); // 모두 선택
+    }
+    setSelectedDistrict(null);
+    setPinnedData(null);
+  }, [activeDistricts]);
+
   const displayData = useMemo(() => {
     let data = scatterData.map((d) => {
       const avg = (d.investmentMin + d.investmentMax) / 2;
       const isOut = hasBudget && (d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9);
-      return { ...d, avg, isOut };
+      const isPinned = pinnedData && pinnedData.name === d.name;
+      return { ...d, avg, isOut, isPinned };
     });
 
-    // 구별 필터 적용 (선택된 구가 있으면 해당 구만 표시)
-    if (activeDistricts.size > 0 && !selectedDistrict) {
+    // 구별 필터 적용: 선택된 구가 없으면 아무것도 안 표시됨 (전체 선택 해제 시)
+    if (!selectedDistrict) {
       data = data.filter((d) => activeDistricts.has(d.district));
     }
 
@@ -251,12 +319,14 @@ function ScatterChartContent() {
       data = scatterData.map((d) => {
         const avg = (d.investmentMin + d.investmentMax) / 2;
         const isOut = hasBudget && (d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9);
-        return { ...d, avg, isOut };
+        const isPinned = pinnedData && pinnedData.name === d.name;
+        return { ...d, avg, isOut, isPinned };
       }).filter((d) => d.district === selectedDistrict);
-      
+
       const refs = REFERENCE_COMPLEXES[selectedDistrict] || [];
       const refPoints = refs.map((ref, idx) => {
         const offset = refs.length > 1 ? (idx - (refs.length - 1) / 2) * 0.25 : 0;
+        const isPinned = pinnedData && pinnedData.id === `ref-${selectedDistrict}-${idx}`;
         return {
           id: `ref-${selectedDistrict}-${idx}`,
           name: ref.name,
@@ -269,13 +339,14 @@ function ScatterChartContent() {
           avg: ref.price,
           isOut: false,
           isRef: true,
+          isPinned,
         };
       });
       data = [...data, ...refPoints];
     }
 
     return applyPositionDodge(data);
-  }, [hasBudget, budgetMinEok, budgetMaxEok, showAllZones, selectedDistrict, activeDistricts]);
+  }, [hasBudget, budgetMinEok, budgetMaxEok, showAllZones, selectedDistrict, activeDistricts, pinnedData]);
 
   // 모바일 자동 줌 도메인: 예산 범위 구역이 화면의 85%를 차지하도록
   const autoZoomDomains = useMemo(() => {
@@ -372,7 +443,7 @@ function ScatterChartContent() {
             입지 및 예산별 구역 비교
           </h1>
           <p className="text-gray-500 text-sm mt-1.5 font-medium">
-            X축: 사업 단계 (우측일수록 안전) · Y축: 예상 실투자금 (억 단위)
+            X축: 사업단계 Y축: 예상 실투자금
           </p>
         </div>
 
@@ -421,11 +492,10 @@ function ScatterChartContent() {
                     <button
                       key={`${min}-${max}`}
                       onClick={() => setBudgetRange([min, max])}
-                      className={`px-2.5 py-1 text-xs rounded-full font-semibold transition-colors ${
-                        budgetRange[0] === min && budgetRange[1] === max
+                      className={`px-2.5 py-1 text-xs rounded-full font-semibold transition-colors ${budgetRange[0] === min && budgetRange[1] === max
                           ? 'bg-indigo-600 text-white'
                           : 'bg-gray-100 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600'
-                      }`}
+                        }`}
                     >
                       {min}~{max}억
                     </button>
@@ -440,23 +510,26 @@ function ScatterChartContent() {
       {/* 구별 필터 칩 */}
       <div className="mb-4 flex flex-wrap gap-2 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
         <button
-          onClick={() => { setActiveDistricts(new Set()); setSelectedDistrict(null); }}
-          className={`px-3 py-1.5 text-xs rounded-full font-bold transition-all ${
-            activeDistricts.size === 0 && !selectedDistrict
+          onClick={handleToggleAll}
+          className={`px-3 py-1.5 text-xs rounded-full font-bold transition-all ${activeDistricts.size === ALL_DISTRICTS.length && !selectedDistrict
               ? 'bg-indigo-600 text-white shadow-md'
               : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-          }`}
+            }`}
         >
-          전체
+          전체 <span className={`ml-0.5 ${activeDistricts.size === ALL_DISTRICTS.length && !selectedDistrict ? 'text-indigo-200' : 'text-gray-400'}`}>
+            {hasBudget && !showAllZones
+              ? scatterData.filter((d) => !(d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)).length
+              : scatterData.length}
+          </span>
         </button>
         {ALL_DISTRICTS.map((district) => {
           const isActive = activeDistricts.has(district) || selectedDistrict === district;
           // 예산 범위 내 구역 수만 카운트 (피드백: 0개 구는 숨김)
           const budgetCount = hasBudget
             ? scatterData.filter((d) =>
-                d.district === district &&
-                !(d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)
-              ).length
+              d.district === district &&
+              !(d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)
+            ).length
             : scatterData.filter((d) => d.district === district).length;
           // 예산 필터 활성화 시 0개 구역인 구는 숨김 (전체 보기 모드 제외)
           if (hasBudget && !showAllZones && budgetCount === 0 && !isActive) return null;
@@ -464,11 +537,10 @@ function ScatterChartContent() {
             <button
               key={district}
               onClick={() => handleToggleDistrict(district)}
-              className={`px-3 py-1.5 text-xs rounded-full font-bold transition-all ${
-                isActive
+              className={`px-3 py-1.5 text-xs rounded-full font-bold transition-all ${isActive
                   ? 'bg-indigo-600 text-white shadow-md'
                   : 'bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'
-              }`}
+                }`}
             >
               {district} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{budgetCount}</span>
             </button>
@@ -499,11 +571,10 @@ function ScatterChartContent() {
         <div className="mb-3 flex items-center justify-end gap-2">
           <button
             onClick={() => setMobileAutoZoom(!mobileAutoZoom)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-              mobileAutoZoom
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${mobileAutoZoom
                 ? 'bg-indigo-600 text-white shadow-md'
                 : 'bg-white border border-gray-200 text-gray-600 shadow-sm'
-            }`}
+              }`}
           >
             {mobileAutoZoom ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             {mobileAutoZoom ? '전체 보기' : '예산 맞춤 줌'}
@@ -513,35 +584,36 @@ function ScatterChartContent() {
 
       {/* Chart */}
       <div
-        className="w-full shadow-2xl border border-gray-100 bg-white rounded-[2rem] overflow-visible relative"
-        style={{ height: isMobile ? '450px' : '600px' }}
+        ref={containerRef}
+        className="w-full shadow-2xl border border-gray-100 bg-white rounded-[2rem] overflow-auto relative custom-scrollbar"
+        style={{ height: isMobile ? '450px' : '600px', touchAction: 'pan-x pan-y' }}
         onClick={() => setPinnedData(null)}
       >
-        <div style={{ width: '100%', height: '100%', padding: isMobile ? '8px' : '32px' }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 20, right: 20, bottom: isMobile && autoZoomDomains ? 40 : 20, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+        <div style={{ width: `${zoomLevel * 100}%`, height: `${zoomLevel * 100}%`, minWidth: '100%', minHeight: '100%', padding: isMobile ? '8px' : '32px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 20, right: 20, bottom: isMobile && autoZoomDomains ? 40 : 20, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
 
-            <XAxis
-              type="number"
-              dataKey="stageDodged"
-              domain={autoZoomDomains ? autoZoomDomains.x : [0.5, 9.5]}
-              ticks={[1, 2, 3, 4, 5, 6, 7, 8, 9]}
-              tickFormatter={(val) => (isMobile ? STAGE_LABELS_SHORT : STAGE_LABELS)[val] || ""}
-              tick={{ fontSize: isMobile ? 11 : 13, fill: autoZoomDomains ? '#94a3b880' : '#64748b', fontWeight: 600 }}
-              axisLine={{ stroke: '#f1f5f9' }}
-              tickLine={false}
-              dy={15}
-            />
+              <XAxis
+                type="number"
+                dataKey="stageDodged"
+                domain={autoZoomDomains ? autoZoomDomains.x : [0.5, 9.5]}
+                ticks={[1, 2, 3, 4, 5, 6, 7, 8, 9]}
+                tickFormatter={(val) => (isMobile ? STAGE_LABELS_SHORT : STAGE_LABELS)[val] || ""}
+                tick={autoZoomDomains ? false : { fontSize: isMobile ? 11 : 13, fill: '#64748b', fontWeight: 600 }}
+                axisLine={{ stroke: '#f1f5f9' }}
+                tickLine={false}
+                dy={15}
+              />
 
-            <YAxis
-              type="number"
-              dataKey="avg"
-              unit="억"
-              domain={
-                autoZoomDomains
-                  ? autoZoomDomains.y
-                  : [
+              <YAxis
+                type="number"
+                dataKey="avg"
+                unit="억"
+                domain={
+                  autoZoomDomains
+                    ? autoZoomDomains.y
+                    : [
                       hasBudget && !showAllZones
                         ? Math.max(0, Math.floor(budgetMinEok * 0.5))
                         : 0,
@@ -549,50 +621,50 @@ function ScatterChartContent() {
                         ? Math.ceil(budgetMaxEok * 1.8)
                         : 32
                     ]
-              }
-              tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 500 }}
-              axisLine={false}
-              tickLine={false}
-              dx={-10}
-            />
-
-            <ZAxis type="number" range={[64, 64]} />
-
-            <Tooltip
-              content={renderTooltip}
-              cursor={{ strokeDasharray: "3 3", stroke: "#cbd5e1", strokeWidth: 1 }}
-              trigger="hover"
-            />
-
-            {/* Budget range band as a reference area */}
-            {hasBudget && (
-              <rect
-                x="0%"
-                y="0"
-                width="100%"
-                height="100%"
-                fill="none"
+                }
+                tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 500 }}
+                axisLine={false}
+                tickLine={false}
+                dx={-10}
               />
-            )}
 
-            <Scatter
-              name="재개발 구역"
-              data={displayData}
-              shape={<DumbbellShape onPointClick={handlePointClick} />}
-              isAnimationActive={false}
-            />
-          </ScatterChart>
-        </ResponsiveContainer>
+              <ZAxis type="number" range={[64, 64]} />
+
+              <Tooltip
+                content={renderTooltip}
+                cursor={false}
+                trigger="hover"
+              />
+
+              {/* Budget range band as a reference area */}
+              {hasBudget && (
+                <rect
+                  x="0%"
+                  y="0"
+                  width="100%"
+                  height="100%"
+                  fill="none"
+                />
+              )}
+
+              <Scatter
+                name="재개발 구역"
+                data={displayData}
+                shape={<DumbbellShape onPointClick={handlePointClick} />}
+                isAnimationActive={false}
+              />
+            </ScatterChart>
+          </ResponsiveContainer>
         </div>
 
         {pinnedData && pinnedData.cx && (
           <div
             className="absolute z-50 bg-white/95 backdrop-blur-sm p-4 rounded-xl shadow-2xl border border-indigo-200 min-w-[240px] max-w-[300px] animate-in zoom-in-95 pointer-events-auto"
-            style={{ 
-              left: pinnedData.cx, 
-              top: pinnedData.cy, 
-              transform: 'translate(-50%, -100%)', 
-              marginTop: '-16px' 
+            style={{
+              left: pinnedData.cx,
+              top: pinnedData.cy,
+              transform: 'translate(-50%, -100%)',
+              marginTop: '-16px'
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -658,7 +730,7 @@ function ScatterChartContent() {
                 </div>
               </div>
             )}
-            
+
             {/* Tooltip arrow */}
             <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b border-r border-indigo-200 transform rotate-45"></div>
           </div>
