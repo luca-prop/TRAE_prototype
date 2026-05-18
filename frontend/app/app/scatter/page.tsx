@@ -63,6 +63,16 @@ function getStageColor(stage: number) {
   return STAGE_COLORS.T_REF;
 }
 
+const ALL_STAGE_GROUPS = ["극초기", "초기", "중기", "후기"];
+
+function getStageGroup(stage: number) {
+  if (stage < 2) return "극초기";
+  if (stage < 4) return "초기";
+  if (stage < 6) return "중기";
+  if (stage < 9) return "후기";
+  return "기축";
+}
+
 /**
  * Position Dodge 로직: 동일 X축(stage) 값을 가진 마커들을 좌우로 미세하게 분산
  */
@@ -469,6 +479,30 @@ function ScatterChartContent() {
     setPinnedData(null);
   }, [activeDistricts]);
 
+  // 단계별 필터: 기본으로 모든 단계 선택
+  const [activeStageGroups, setActiveStageGroups] = useState<Set<string>>(new Set(ALL_STAGE_GROUPS));
+  const handleToggleStageGroup = useCallback((group: string) => {
+    setActiveStageGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) {
+        next.delete(group);
+      } else {
+        next.add(group);
+      }
+      return next;
+    });
+    setPinnedData(null);
+  }, []);
+
+  const handleToggleAllStages = useCallback(() => {
+    if (activeStageGroups.size === ALL_STAGE_GROUPS.length) {
+      setActiveStageGroups(new Set()); // 모두 해제
+    } else {
+      setActiveStageGroups(new Set(ALL_STAGE_GROUPS)); // 모두 선택
+    }
+    setPinnedData(null);
+  }, [activeStageGroups]);
+
   const displayData = useMemo(() => {
     let data = scatterData.map((d) => {
       const avg = (d.investmentMin + d.investmentMax) / 2;
@@ -487,6 +521,13 @@ function ScatterChartContent() {
       data = data.filter((d) => !d.isOut);
     }
 
+    // 단계 필터 적용 (기축은 유지)
+    data = data.filter((d: any) => {
+      if (d.isRef) return true;
+      const group = getStageGroup(d.stage);
+      return activeStageGroups.has(group);
+    });
+
     if (selectedDistrict) {
       data = scatterData.map((d) => {
         const avg = (d.investmentMin + d.investmentMax) / 2;
@@ -494,6 +535,13 @@ function ScatterChartContent() {
         const isPinned = pinnedData && pinnedData.name === d.name;
         return { ...d, avg, isOut, isPinned, hasPinned: !!pinnedData };
       }).filter((d) => d.district === selectedDistrict);
+
+      // 선택된 구역 모드에서도 단계 필터 유지
+      data = data.filter((d: any) => {
+        if (d.isRef) return true;
+        const group = getStageGroup(d.stage);
+        return activeStageGroups.has(group);
+      });
 
       const refs = REFERENCE_COMPLEXES[selectedDistrict] || [];
       const refPoints = refs.map((ref, idx) => {
@@ -519,7 +567,7 @@ function ScatterChartContent() {
     }
 
     return applyPositionDodge(data);
-  }, [hasBudget, budgetMinEok, budgetMaxEok, showAllZones, selectedDistrict, activeDistricts, pinnedData]);
+  }, [hasBudget, budgetMinEok, budgetMaxEok, showAllZones, selectedDistrict, activeDistricts, activeStageGroups, pinnedData]);
 
   // 자동 줌 도메인: 예산 범위 구역이 화면의 85%를 차지하도록
   const autoZoomDomains = useMemo(() => {
@@ -727,6 +775,52 @@ function ScatterChartContent() {
                 }`}
             >
               {district} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{budgetCount}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 단계별 필터 칩 */}
+      <div className="mb-4 flex flex-wrap gap-2 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+        <button
+          onClick={handleToggleAllStages}
+          className={`px-3 py-1.5 text-xs rounded-full font-bold transition-all ${activeStageGroups.size === ALL_STAGE_GROUPS.length
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+        >
+          전체 단계 <span className={`ml-0.5 ${activeStageGroups.size === ALL_STAGE_GROUPS.length ? 'text-indigo-200' : 'text-gray-400'}`}>
+            {scatterData.filter((d) => {
+              if (hasBudget && !showAllZones && (d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)) return false;
+              if (selectedDistrict && d.district !== selectedDistrict) return false;
+              if (!selectedDistrict && !activeDistricts.has(d.district)) return false;
+              return true;
+            }).length}
+          </span>
+        </button>
+        {ALL_STAGE_GROUPS.map((group) => {
+          const isActive = activeStageGroups.has(group);
+          
+          const budgetCount = scatterData.filter((d) => {
+            if (getStageGroup(d.stage) !== group) return false;
+            if (hasBudget && !showAllZones && (d.investmentMin > budgetMaxEok * 1.1 || d.investmentMax < budgetMinEok * 0.9)) return false;
+            if (selectedDistrict && d.district !== selectedDistrict) return false;
+            if (!selectedDistrict && !activeDistricts.has(d.district)) return false;
+            return true;
+          }).length;
+
+          if (budgetCount === 0) return null;
+
+          return (
+            <button
+              key={group}
+              onClick={() => handleToggleStageGroup(group)}
+              className={`px-3 py-1.5 text-xs rounded-full font-bold transition-all ${isActive
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'
+                }`}
+            >
+              {group} <span className={`ml-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>{budgetCount}</span>
             </button>
           );
         })}
